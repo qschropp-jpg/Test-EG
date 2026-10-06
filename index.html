@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>VR-Schulrundgang – Erdgeschoss</title>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000;font-family:Arial,sans-serif}
+#ui{position:fixed;z-index:10;left:14px;top:14px;max-width:400px;padding:14px 16px;border-radius:12px;background:rgba(18,22,28,.92);color:white}
+#ui h1{font-size:19px;margin:0 0 8px}
+#ui p{font-size:14px;line-height:1.35;margin:7px 0}
+#sceneSelect{width:100%;padding:8px;margin:7px 0 10px;border-radius:8px;font:inherit}
+#vrStart{font:inherit;font-weight:700;padding:10px 15px;border:0;border-radius:9px;background:#55c96b;color:#07120a;cursor:pointer}
+#vrStart:disabled{opacity:.5}
+#sceneName{font-weight:700}
+#canvas{display:block;width:100%;height:100%}
+body.invr #ui{display:none}
+</style>
+</head>
+<body>
+<div id="ui">
+  <h1>VR-Schulrundgang – Erdgeschoss</h1>
+  <p id="support">WebXR wird geprüft …</p>
+  <p>Aktuelle Szene: <span id="sceneName">Haupteingang</span></p>
+  <select id="sceneSelect" aria-label="Szene wählen"></select>
+  <button id="vrStart" disabled>VR starten</button>
+  <p>Die Pfeile liegen in Bodennähe. Mit dem Controller-Laser darauf zeigen und den Trigger drücken.</p>
+</div>
+<canvas id="canvas"></canvas>
+
+<script type="module">
+import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js";
+import { VRButton } from "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/webxr/VRButton.js";
+
+const SCENES = {"0-haupteingang": {"name": "Haupteingang", "file": "images/haupteingang.jpg", "links": [{"target": "1-eingangsbereich", "yaw": 0.04549071169454422}]}, "1-eingangsbereich": {"name": "Eingangsbereich", "file": "images/eingangsbereich.jpg", "links": [{"target": "35-treppe1-keller", "yaw": 1.269249438274045}, {"target": "0-haupteingang", "yaw": -3.0075493525594883}, {"target": "2-erdgeschoss-1", "yaw": 0.29385782827829665}]}, "2-erdgeschoss-1": {"name": "Erdgeschoss 1", "file": "images/erdgeschoss1.jpg", "links": [{"target": "3-erdgeschoss-2", "yaw": 0.3373497305276967}, {"target": "1-eingangsbereich", "yaw": -2.7134840040005557}]}, "3-erdgeschoss-2": {"name": "Erdgeschoss 2", "file": "images/erdgeschoss2.jpg", "links": [{"target": "4-erdgeschoss-3", "yaw": 0.3773572471599529}, {"target": "2-erdgeschoss-1", "yaw": -2.9976427144780953}]}, "4-erdgeschoss-3": {"name": "Erdgeschoss 3", "file": "images/erdgeschoss3.jpg", "links": [{"target": "5-treppenhaus-2", "yaw": -0.03497233827366486}, {"target": "3-erdgeschoss-2", "yaw": -2.880688391340245}, {"target": "61-gang-1", "yaw": 1.0979394662553368}]}, "5-treppenhaus-2": {"name": "Treppenhaus 2", "file": "images/treppenhaus2.jpg", "links": [{"target": "4-erdgeschoss-3", "yaw": 1.7770103069589327}]}, "35-treppe1-keller": {"name": "Treppe 1 / Keller", "file": "images/treppe1-keller.jpg", "links": [{"target": "1-eingangsbereich", "yaw": -1.3984153942893318}]}, "51-technologieraum-erdgeschoss": {"name": "Technologieraum-Erdgeschoss", "file": "images/technologieraum.jpg", "links": [{"target": "64-gang-4", "yaw": -0.5067015462020095}]}, "60-cafeteria": {"name": "Cafeteria", "file": "images/cafeteria.jpg", "links": [{"target": "63-gang-3", "yaw": -1.081862908231054}, {"target": "62-gang-2", "yaw": 2.7468070038184482}]}, "61-gang-1": {"name": "Gang 1", "file": "images/gang1.jpg", "links": [{"target": "62-gang-2", "yaw": -0.06360837959993049}, {"target": "4-erdgeschoss-3", "yaw": -3.137666660767522}]}, "62-gang-2": {"name": "Gang 2", "file": "images/gang2.jpg", "links": [{"target": "60-cafeteria", "yaw": 0.08520187414737812}, {"target": "61-gang-1", "yaw": -3.0681519233871146}]}, "63-gang-3": {"name": "Gang 3", "file": "images/gang3.jpg", "links": [{"target": "64-gang-4", "yaw": 0.006591711400277589}, {"target": "60-cafeteria", "yaw": 2.8609941081235775}]}, "64-gang-4": {"name": "Gang 4", "file": "images/gang4.jpg", "links": [{"target": "51-technologieraum-erdgeschoss", "yaw": 0.4081074169738823}, {"target": "63-gang-3", "yaw": -2.6890631092609247}]}};
+let currentSceneId = "0-haupteingang";
+
+const canvas = document.getElementById("canvas");
+const support = document.getElementById("support");
+const sceneName = document.getElementById("sceneName");
+const sceneSelect = document.getElementById("sceneSelect");
+const vrStart = document.getElementById("vrStart");
+
+for (const [id,s] of Object.entries(SCENES)) {
+  const o=document.createElement("option");
+  o.value=id; o.textContent=s.name; sceneSelect.appendChild(o);
+}
+sceneSelect.value=currentSceneId;
+
+const renderer = new THREE.WebGLRenderer({canvas,antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.xr.enabled=true;
+
+const scene=new THREE.Scene();
+const camera=new THREE.PerspectiveCamera(75,1,0.1,1100);
+camera.position.set(0,0,0);
+
+const panoramaGeometry=new THREE.SphereGeometry(100,96,64);
+panoramaGeometry.scale(-1,1,1);
+const panoramaMaterial=new THREE.MeshBasicMaterial({color:0xffffff});
+const panorama=new THREE.Mesh(panoramaGeometry,panoramaMaterial);
+
+// Same orientation correction that worked in the previous test version.
+panorama.rotation.y=-Math.PI/2;
+scene.add(panorama);
+
+const hotspotGroup=new THREE.Group();
+scene.add(hotspotGroup);
+const loader=new THREE.TextureLoader();
+const textureCache=new Map();
+
+function arrowTexture(color) {
+  const c=document.createElement("canvas"); c.width=256;c.height=256;
+  const x=c.getContext("2d");
+  x.beginPath();x.arc(128,128,92,0,Math.PI*2);x.fillStyle="rgba(0,0,0,.48)";x.fill();
+  x.lineWidth=10;x.strokeStyle=color;x.stroke();
+  x.beginPath();
+  x.moveTo(128,52);x.lineTo(198,132);x.lineTo(158,132);
+  x.lineTo(158,194);x.lineTo(98,194);x.lineTo(98,132);x.lineTo(58,132);
+  x.closePath();x.fillStyle=color;x.fill();
+  const t=new THREE.CanvasTexture(c);t.colorSpace=THREE.SRGBColorSpace;return t;
+}
+const arrowTex=arrowTexture("#ffffff");
+const hoverTex=arrowTexture("#55ff88");
+
+function pos(yaw,pitch=-0.58,r=7.5) {
+  const cp=Math.cos(pitch);
+  return new THREE.Vector3(r*cp*Math.sin(yaw),r*Math.sin(pitch),-r*cp*Math.cos(yaw));
+}
+function clearHotspots() {
+  while(hotspotGroup.children.length) hotspotGroup.remove(hotspotGroup.children[0]);
+}
+function buildHotspots() {
+  clearHotspots();
+  for(const link of SCENES[currentSceneId].links) {
+    const mat=new THREE.SpriteMaterial({map:arrowTex,transparent:true,depthTest:false,depthWrite:false});
+    const sp=new THREE.Sprite(mat);
+    sp.position.copy(pos(link.yaw));
+    sp.scale.set(.85,.85,.85);
+    sp.userData.target=link.target;
+    hotspotGroup.add(sp);
+  }
+}
+async function texture(url) {
+  if(textureCache.has(url)) return textureCache.get(url);
+  const t=await loader.loadAsync(url);t.colorSpace=THREE.SRGBColorSpace;
+  textureCache.set(url,t);return t;
+}
+async function switchScene(id) {
+  if(!SCENES[id]) return;
+  currentSceneId=id;
+  const s=SCENES[id];
+  sceneName.textContent=s.name;sceneSelect.value=id;
+  panorama.material.map=await texture(s.file);
+  panorama.material.needsUpdate=true;
+  buildHotspots();
+}
+sceneSelect.addEventListener("change",()=>switchScene(sceneSelect.value));
+await switchScene(currentSceneId);
+
+function resize() {
+  renderer.setSize(innerWidth,innerHeight,false);
+  camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();
+}
+addEventListener("resize",resize);resize();
+
+const raycaster=new THREE.Raycaster(),tempMatrix=new THREE.Matrix4();
+let hovered=null;
+function setHovered(obj) {
+  if(hovered===obj)return;
+  if(hovered)hovered.material.map=arrowTex;
+  hovered=obj;
+  if(hovered)hovered.material.map=hoverTex;
+}
+function setupController(index) {
+  const c=renderer.xr.getController(index);scene.add(c);
+  const g=new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(),new THREE.Vector3(0,0,-1)]);
+  const line=new THREE.Line(g,new THREE.LineBasicMaterial({color:0x55ff88}));line.scale.z=8;c.add(line);
+  c.addEventListener("select",()=>{
+    tempMatrix.identity().extractRotation(c.matrixWorld);
+    raycaster.ray.origin.setFromMatrixPosition(c.matrixWorld);
+    raycaster.ray.direction.set(0,0,-1).applyMatrix4(tempMatrix);
+    const h=raycaster.intersectObjects(hotspotGroup.children,false);
+    if(h.length)switchScene(h[0].object.userData.target);
+  });
+  return c;
+}
+const controllers=[setupController(0),setupController(1)];
+
+const mouse=new THREE.Vector2();
+canvas.addEventListener("pointerdown",e=>{
+  mouse.x=e.clientX/innerWidth*2-1;mouse.y=-(e.clientY/innerHeight)*2+1;
+  raycaster.setFromCamera(mouse,camera);
+  const h=raycaster.intersectObjects(hotspotGroup.children,false);
+  if(h.length)switchScene(h[0].object.userData.target);
+});
+
+let vrButton;
+if(navigator.xr) {
+  try {
+    const ok=await navigator.xr.isSessionSupported("immersive-vr");
+    if(ok) {
+      support.textContent="Immersive VR wird unterstützt.";
+      vrStart.disabled=false;
+      vrButton=VRButton.createButton(renderer,{optionalFeatures:["local-floor","bounded-floor"]});
+      vrButton.style.display="none";document.body.appendChild(vrButton);
+      vrStart.addEventListener("click",()=>vrButton.click());
+    } else support.textContent="Dieser Browser meldet keine Unterstützung für immersive VR.";
+  } catch(e) {support.textContent="WebXR-Prüfung fehlgeschlagen: "+e.message;}
+} else support.textContent="WebXR ist in diesem Browser nicht verfügbar.";
+
+renderer.xr.addEventListener("sessionstart",()=>document.body.classList.add("invr"));
+renderer.xr.addEventListener("sessionend",()=>document.body.classList.remove("invr"));
+
+renderer.setAnimationLoop(()=>{
+  if(renderer.xr.isPresenting) {
+    let best=null;
+    for(const c of controllers) {
+      tempMatrix.identity().extractRotation(c.matrixWorld);
+      raycaster.ray.origin.setFromMatrixPosition(c.matrixWorld);
+      raycaster.ray.direction.set(0,0,-1).applyMatrix4(tempMatrix);
+      const h=raycaster.intersectObjects(hotspotGroup.children,false);
+      if(h.length){best=h[0].object;break;}
+    }
+    setHovered(best);
+  }
+  renderer.render(scene,camera);
+});
+</script>
+</body>
+</html>
